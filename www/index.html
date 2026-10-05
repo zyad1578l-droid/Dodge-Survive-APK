@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Dodge & Survive</title>
+
+<style>
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+}
+
+html,body{
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:#07111f;
+  font-family:Arial,sans-serif;
+}
+
+body{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+
+#game{
+  position:relative;
+  width:100%;
+  height:100%;
+  max-width:520px;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 50% 30%,#183a61 0%,#09192c 45%,#040b15 100%);
+}
+
+canvas{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+}
+
+#hud{
+  position:absolute;
+  top:15px;
+  left:15px;
+  right:15px;
+  display:flex;
+  justify-content:space-between;
+  pointer-events:none;
+  z-index:5;
+}
+
+.box{
+  padding:10px 15px;
+  border-radius:14px;
+  background:rgba(5,15,28,.72);
+  border:1px solid rgba(255,255,255,.12);
+  color:white;
+  font-weight:bold;
+  backdrop-filter:blur(8px);
+}
+
+#screen{
+  position:absolute;
+  inset:0;
+  z-index:10;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+  padding:30px;
+  background:rgba(2,8,16,.72);
+}
+
+#screen h1{
+  font-size:46px;
+  color:#fff;
+  margin-bottom:8px;
+  text-shadow:0 0 25px #20c9ff;
+}
+
+#screen p{
+  color:#a9bfd6;
+  margin-bottom:25px;
+  line-height:1.5;
+}
+
+button{
+  border:0;
+  border-radius:16px;
+  padding:15px 38px;
+  font-size:18px;
+  font-weight:bold;
+  color:#03101b;
+  background:linear-gradient(135deg,#35e0ff,#1aa7ff);
+  box-shadow:0 8px 25px rgba(20,190,255,.3);
+}
+
+button:active{
+  transform:scale(.96);
+}
+
+#controls{
+  position:absolute;
+  bottom:25px;
+  left:20px;
+  right:20px;
+  display:flex;
+  justify-content:space-between;
+  pointer-events:none;
+  z-index:6;
+}
+
+.control{
+  width:75px;
+  height:75px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:30px;
+  color:white;
+  background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.18);
+  pointer-events:auto;
+}
+
+.hidden{
+  display:none !important;
+}
+</style>
+</head>
+
+<body>
+
+<div id="game">
+
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <div class="box">Score: <span id="score">0</span></div>
+  <div class="box">Best: <span id="best">0</span></div>
+</div>
+
+<div id="screen">
+  <h1>DODGE</h1>
+  <p>
+    Survive as long as possible.<br>
+    Dodge the falling enemies and collect coins.
+  </p>
+  <button id="start">START GAME</button>
+</div>
+
+<div id="controls">
+  <div class="control" id="left">◀</div>
+  <div class="control" id="right">▶</div>
+</div>
+
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const screen = document.getElementById("screen");
+const startBtn = document.getElementById("start");
+
+let W,H;
+let running=false;
+let score=0;
+let best=Number(localStorage.getItem("dodgeBest")||0);
+
+bestEl.textContent=best;
+
+const player={
+  x:0,
+  y:0,
+  w:42,
+  h:42,
+  speed:6
+};
+
+let enemies=[];
+let coins=[];
+let particles=[];
+
+let leftPressed=false;
+let rightPressed=false;
+
+let spawnTimer=0;
+let coinTimer=0;
+let lastTime=0;
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+
+  if(W>520) W=520;
+
+  player.y=H-125;
+
+  if(!player.x){
+    player.x=W/2-player.w/2;
+  }
+
+  player.x=Math.max(0,Math.min(W-player.w,player.x));
+}
+
+window.addEventListener("resize",resize);
+resize();
+
+function random(min,max){
+  return Math.random()*(max-min)+min;
+}
+
+function startGame(){
+  running=true;
+  score=0;
+  enemies=[];
+  coins=[];
+  particles=[];
+  spawnTimer=0;
+  coinTimer=0;
+
+  player.x=W/2-player.w/2;
+
+  scoreEl.textContent="0";
+
+  screen.classList.add("hidden");
+
+  lastTime=performance.now();
+  requestAnimationFrame(loop);
+}
+
+function gameOver(){
+
+  running=false;
+
+  if(score>best){
+    best=score;
+    localStorage.setItem("dodgeBest",best);
+    bestEl.textContent=best;
+  }
+
+  screen.innerHTML=`
+    <h1>GAME OVER</h1>
+    <p>Your score: <b>${score}</b><br>Best score: <b>${best}</b></p>
+    <button id="restart">PLAY AGAIN</button>
+  `;
+
+  screen.classList.remove("hidden");
+
+  document.getElementById("restart").onclick=startGame;
+}
+
+function spawnEnemy(){
+
+  const size=random(28,55);
+
+  enemies.push({
+    x:random(5,W-size-5),
+    y:-size,
+    w:size,
+    h:size,
+    speed:random(3,5)+score/500
+  });
+}
+
+function spawnCoin(){
+
+  coins.push({
+    x:random(15,W-30),
+    y:-25,
+    r:10,
+    speed:3
+  });
+}
+
+function hit(a,b){
+  return(
+    a.x < b.x+b.w &&
+    a.x+a.w > b.x &&
+    a.y < b.y+b.h &&
+    a.y+a.h > b.y
+  );
+}
+
+function coinHit(){
+
+  for(let i=coins.length-1;i>=0;i--){
+
+    const c=coins[i];
+
+    const dx=(player.x+player.w/2)-c.x;
+    const dy=(player.y+player.h/2)-c.y;
+
+    if(Math.sqrt(dx*dx+dy*dy)<28){
+      coins.splice(i,1);
+      score+=25;
+      createParticles(c.x,c.y);
+    }
+  }
+}
+
+function createParticles(x,y){
+
+  for(let i=0;i<12;i++){
+
+    particles.push({
+      x,
+      y,
+      vx:random(-3,3),
+      vy:random(-3,3),
+      life:1
+    });
+  }
+}
+
+function update(dt){
+
+  if(leftPressed) player.x-=player.speed*dt;
+  if(rightPressed) player.x+=player.speed*dt;
+
+  player.x=Math.max(0,Math.min(W-player.w,player.x));
+
+  spawnTimer+=dt;
+  coinTimer+=dt;
+
+  if(spawnTimer>Math.max(350,850-score*2)){
+    spawnEnemy();
+    spawnTimer=0;
+  }
+
+  if(coinTimer>1300){
+    spawnCoin();
+    coinTimer=0;
+  }
+
+  for(let i=enemies.length-1;i>=0;i--){
+
+    const e=enemies[i];
+
+    e.y+=e.speed*dt;
+
+    if(hit(player,e)){
+      gameOver();
+      return;
+    }
+
+    if(e.y>H+70){
+      enemies.splice(i,1);
+      score++;
+      scoreEl.textContent=score;
+    }
+  }
+
+  for(let i=coins.length-1;i>=0;i--){
+
+    coins[i].y+=coins[i].speed*dt;
+
+    if(coins[i].y>H+30){
+      coins.splice(i,1);
+    }
+  }
+
+  coinHit();
+
+  for(let i=particles.length-1;i>=0;i--){
+
+    const p=particles[i];
+
+    p.x+=p.vx*dt;
+    p.y+=p.vy*dt;
+    p.life-=.035*dt;
+
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+
+function drawBackground(){
+
+  ctx.fillStyle="#07111f";
+  ctx.fillRect(0,0,W,H);
+
+  for(let i=0;i<35;i++){
+
+    const x=(i*97)%W;
+    const y=(i*173+(performance.now()/30))%H;
+
+    ctx.fillStyle="rgba(255,255,255,.12)";
+    ctx.fillRect(x,y,2,2);
+  }
+}
+
+function drawPlayer(){
+
+  const x=player.x;
+  const y=player.y;
+
+  ctx.save();
+
+  ctx.shadowBlur=25;
+  ctx.shadowColor="#20d8ff";
+
+  ctx.fillStyle="#20cfff";
+  ctx.beginPath();
+  ctx.roundRect(x,y,player.w,player.h,12);
+  ctx.fill();
+
+  ctx.shadowBlur=0;
+
+  ctx.fillStyle="#07111f";
+  ctx.beginPath();
+  ctx.arc(x+13,y+16,4,0,Math.PI*2);
+  ctx.arc(x+29,y+16,4,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.strokeStyle="#07111f";
+  ctx.lineWidth=3;
+  ctx.beginPath();
+  ctx.arc(x+21,y+21,9,0.2,Math.PI-.2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawEnemies(){
+
+  enemies.forEach(e=>{
+
+    ctx.save();
+
+    ctx.shadowBlur=18;
+    ctx.shadowColor="#ff315d";
+
+    ctx.fillStyle="#ff315d";
+    ctx.beginPath();
+    ctx.roundRect(e.x,e.y,e.w,e.h,10);
+    ctx.fill();
+
+    ctx.shadowBlur=0;
+
+    ctx.fillStyle="#450817";
+
+    ctx.beginPath();
+    ctx.arc(e.x+e.w*.32,e.y+e.h*.38,4,0,Math.PI*2);
+    ctx.arc(e.x+e.w*.68,e.y+e.h*.38,4,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  });
+}
+
+function drawCoins(){
+
+  coins.forEach(c=>{
+
+    ctx.save();
+
+    ctx.shadowBlur=20;
+    ctx.shadowColor="#ffd83d";
+
+    ctx.fillStyle="#ffd83d";
+
+    ctx.beginPath();
+    ctx.arc(c.x,c.y,c.r,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle="#9b6b00";
+    ctx.font="bold 13px Arial";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillText("$",c.x,c.y);
+
+    ctx.restore();
+  });
+}
+
+function drawParticles(){
+
+  particles.forEach(p=>{
+
+    ctx.globalAlpha=Math.max(0,p.life);
+
+    ctx.fillStyle="#35e0ff";
+
+    ctx.fillRect(p.x,p.y,4,4);
+  });
+
+  ctx.globalAlpha=1;
+}
+
+function loop(time){
+
+  if(!running) return;
+
+  const dt=Math.min((time-lastTime)/16.67,2);
+  lastTime=time;
+
+  update(dt);
+
+  drawBackground();
+  drawCoins();
+  drawEnemies();
+  drawParticles();
+  drawPlayer();
+
+  requestAnimationFrame(loop);
+}
+
+function pressLeft(v){
+  leftPressed=v;
+}
+
+function pressRight(v){
+  rightPressed=v;
+}
+
+["touchstart","mousedown"].forEach(type=>{
+  document.getElementById("left").addEventListener(type,e=>{
+    e.preventDefault();
+    pressLeft(true);
+  });
+
+  document.getElementById("right").addEventListener(type,e=>{
+    e.preventDefault();
+    pressRight(true);
+  });
+});
+
+["touchend","mouseup","mouseleave"].forEach(type=>{
+  document.getElementById("left").addEventListener(type,()=>{
+    pressLeft(false);
+  });
+
+  document.getElementById("right").addEventListener(type,()=>{
+    pressRight(false);
+  });
+});
+
+document.addEventListener("keydown",e=>{
+
+  if(e.key==="ArrowLeft" || e.key==="a")
+    leftPressed=true;
+
+  if(e.key==="ArrowRight" || e.key==="d")
+    rightPressed=true;
+});
+
+document.addEventListener("keyup",e=>{
+
+  if(e.key==="ArrowLeft" || e.key==="a")
+    leftPressed=false;
+
+  if(e.key==="ArrowRight" || e.key==="d")
+    rightPressed=false;
+});
+
+startBtn.onclick=startGame;
+</script>
+
+</body>
+</html>
