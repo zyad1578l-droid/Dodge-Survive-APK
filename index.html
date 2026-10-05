@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>Dodge & Survive</title>
+
+<style>
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+}
+
+html,body{
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:#07111f;
+  font-family:Arial,sans-serif;
+}
+
+body{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+
+#game{
+  position:relative;
+  width:100%;
+  max-width:500px;
+  height:100%;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 50% 20%,#183a63 0%,#0b1b30 38%,#050b14 100%);
+}
+
+canvas{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+}
+
+#hud{
+  position:absolute;
+  top:18px;
+  left:18px;
+  right:18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  z-index:5;
+  pointer-events:none;
+}
+
+.stat{
+  background:rgba(5,12,24,.72);
+  border:1px solid rgba(100,180,255,.25);
+  border-radius:14px;
+  padding:9px 13px;
+  color:white;
+  font-size:14px;
+  font-weight:bold;
+  backdrop-filter:blur(8px);
+}
+
+#menu{
+  position:absolute;
+  inset:0;
+  z-index:10;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+  padding:25px;
+  background:linear-gradient(
+    rgba(3,9,18,.45),
+    rgba(3,9,18,.88)
+  );
+}
+
+.logo{
+  font-size:42px;
+  font-weight:900;
+  color:#fff;
+  letter-spacing:-2px;
+  text-shadow:0 5px 25px rgba(40,170,255,.45);
+}
+
+.logo span{
+  color:#35c8ff;
+}
+
+.subtitle{
+  color:#9db6d2;
+  margin-top:8px;
+  margin-bottom:35px;
+  font-size:15px;
+}
+
+button{
+  border:0;
+  border-radius:16px;
+  padding:16px 48px;
+  font-size:18px;
+  font-weight:800;
+  color:#03101d;
+  background:#35c8ff;
+  box-shadow:0 8px 30px rgba(53,200,255,.3);
+}
+
+button:active{
+  transform:scale(.96);
+}
+
+#gameover{
+  display:none;
+  position:absolute;
+  inset:0;
+  z-index:20;
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
+  background:rgba(2,7,14,.82);
+  text-align:center;
+}
+
+#gameover h2{
+  color:white;
+  font-size:36px;
+  margin-bottom:12px;
+}
+
+#finalScore{
+  color:#35c8ff;
+  font-size:24px;
+  font-weight:bold;
+  margin-bottom:25px;
+}
+
+#controls{
+  position:absolute;
+  bottom:30px;
+  left:25px;
+  right:25px;
+  display:flex;
+  justify-content:space-between;
+  z-index:6;
+}
+
+.control{
+  width:85px;
+  height:70px;
+  border-radius:20px;
+  background:rgba(255,255,255,.09);
+  border:1px solid rgba(255,255,255,.12);
+  color:white;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  font-size:30px;
+}
+
+.control:active{
+  background:rgba(53,200,255,.25);
+}
+</style>
+</head>
+
+<body>
+
+<div id="game">
+
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <div class="stat">SCORE: <span id="score">0</span></div>
+  <div class="stat">BEST: <span id="best">0</span></div>
+</div>
+
+<div id="menu">
+  <div class="logo">DODGE <span>&</span> SURVIVE</div>
+  <div class="subtitle">How long can you survive?</div>
+  <button id="startBtn">START GAME</button>
+</div>
+
+<div id="gameover">
+  <h2>GAME OVER</h2>
+  <div id="finalScore">Score: 0</div>
+  <button id="restartBtn">PLAY AGAIN</button>
+</div>
+
+<div id="controls">
+  <div class="control" id="left">◀</div>
+  <div class="control" id="right">▶</div>
+</div>
+
+</div>
+
+<script>
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const menu = document.getElementById("menu");
+const gameover = document.getElementById("gameover");
+const finalScore = document.getElementById("finalScore");
+
+let W,H;
+let running=false;
+let score=0;
+let best=Number(localStorage.getItem("bestScore")||0);
+
+bestEl.textContent=best;
+
+const player={
+  x:0,
+  y:0,
+  w:38,
+  h:38,
+  speed:7
+};
+
+let obstacles=[];
+let stars=[];
+let leftPressed=false;
+let rightPressed=false;
+let spawnTimer=0;
+let difficulty=1;
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+
+  player.y=H-145;
+
+  if(!player.x){
+    player.x=W/2-player.w/2;
+  }
+}
+
+window.addEventListener("resize",resize);
+resize();
+
+function createStars(){
+
+  stars=[];
+
+  for(let i=0;i<90;i++){
+    stars.push({
+      x:Math.random()*W,
+      y:Math.random()*H,
+      size:Math.random()*2+1,
+      speed:Math.random()*1.5+.4
+    });
+  }
+}
+
+createStars();
+
+function drawStars(){
+
+  ctx.fillStyle="rgba(255,255,255,.65)";
+
+  for(const s of stars){
+
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,s.size,0,Math.PI*2);
+    ctx.fill();
+
+    if(running){
+      s.y+=s.speed;
+
+      if(s.y>H){
+        s.y=0;
+        s.x=Math.random()*W;
+      }
+    }
+  }
+}
+
+function drawPlayer(){
+
+  const x=player.x;
+  const y=player.y;
+
+  ctx.save();
+
+  ctx.shadowBlur=22;
+  ctx.shadowColor="#35c8ff";
+
+  ctx.fillStyle="#35c8ff";
+
+  ctx.beginPath();
+  ctx.roundRect(
+    x,
+    y,
+    player.w,
+    player.h,
+    12
+  );
+  ctx.fill();
+
+  ctx.shadowBlur=0;
+
+  ctx.fillStyle="#07111f";
+
+  ctx.beginPath();
+  ctx.arc(x+12,y+14,4,0,Math.PI*2);
+  ctx.arc(x+26,y+14,4,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.strokeStyle="#07111f";
+  ctx.lineWidth=3;
+
+  ctx.beginPath();
+  ctx.arc(
+    x+19,
+    y+18,
+    9,
+    .2,
+    Math.PI-.2
+  );
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function spawnObstacle(){
+
+  const size=28+Math.random()*25;
+
+  obstacles.push({
+    x:Math.random()*(W-size),
+    y:-size,
+    size:size,
+    speed:3.5+difficulty*.45,
+    rotation:Math.random()*Math.PI
+  });
+}
+
+function drawObstacles(){
+
+  for(const o of obstacles){
+
+    ctx.save();
+
+    ctx.translate(
+      o.x+o.size/2,
+      o.y+o.size/2
+    );
+
+    o.rotation+=.025;
+
+    ctx.rotate(o.rotation);
+
+    ctx.shadowBlur=15;
+    ctx.shadowColor="#ff4567";
+
+    ctx.fillStyle="#ff4567";
+
+    ctx.beginPath();
+
+    for(let i=0;i<8;i++){
+
+      const a=i*Math.PI/4;
+      const r=i%2===0
+        ? o.size/2
+        : o.size/3;
+
+      const x=Math.cos(a)*r;
+      const y=Math.sin(a)*r;
+
+      if(i===0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    }
+
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+
+    if(running){
+      o.y+=o.speed;
+    }
+  }
+
+  obstacles=obstacles.filter(o=>o.y<H+100);
+}
+
+function collision(a,b){
+
+  return (
+    a.x < b.x+b.size &&
+    a.x+a.w > b.x &&
+    a.y < b.y+b.size &&
+    a.y+a.h > b.y
+  );
+}
+
+function update(){
+
+  if(!running) return;
+
+  if(leftPressed){
+    player.x-=player.speed;
+  }
+
+  if(rightPressed){
+    player.x+=player.speed;
+  }
+
+  player.x=Math.max(
+    5,
+    Math.min(W-player.w-5,player.x)
+  );
+
+  spawnTimer--;
+
+  if(spawnTimer<=0){
+
+    spawnObstacle();
+
+    spawnTimer=Math.max(
+      18,
+      55-difficulty*3
+    );
+  }
+
+  difficulty+=0.002;
+
+  for(const o of obstacles){
+
+    if(collision(player,o)){
+      endGame();
+      return;
+    }
+  }
+
+  score+=0.1;
+
+  scoreEl.textContent=Math.floor(score);
+}
+
+function draw(){
+
+  ctx.clearRect(0,0,W,H);
+
+  drawStars();
+  drawObstacles();
+  drawPlayer();
+
+  requestAnimationFrame(draw);
+}
+
+function startGame(){
+
+  obstacles=[];
+  score=0;
+  difficulty=1;
+  spawnTimer=30;
+
+  player.x=W/2-player.w/2;
+  player.y=H-145;
+
+  scoreEl.textContent="0";
+
+  menu.style.display="none";
+  gameover.style.display="none";
+
+  running=true;
+}
+
+function endGame(){
+
+  running=false;
+
+  const final=Math.floor(score);
+
+  if(final>best){
+
+    best=final;
+
+    localStorage.setItem(
+      "bestScore",
+      best
+    );
+
+    bestEl.textContent=best;
+  }
+
+  finalScore.textContent=
+    "Score: "+final;
+
+  gameover.style.display="flex";
+}
+
+document.getElementById("startBtn")
+  .onclick=startGame;
+
+document.getElementById("restartBtn")
+  .onclick=startGame;
+
+function pressLeft(e){
+  e.preventDefault();
+  leftPressed=true;
+}
+
+function releaseLeft(e){
+  e.preventDefault();
+  leftPressed=false;
+}
+
+function pressRight(e){
+  e.preventDefault();
+  rightPressed=true;
+}
+
+function releaseRight(e){
+  e.preventDefault();
+  rightPressed=false;
+}
+
+const left=document.getElementById("left");
+const right=document.getElementById("right");
+
+left.addEventListener("touchstart",pressLeft);
+left.addEventListener("touchend",releaseLeft);
+left.addEventListener("touchcancel",releaseLeft);
+
+right.addEventListener("touchstart",pressRight);
+right.addEventListener("touchend",releaseRight);
+right.addEventListener("touchcancel",releaseRight);
+
+left.addEventListener("mousedown",pressLeft);
+left.addEventListener("mouseup",releaseLeft);
+
+right.addEventListener("mousedown",pressRight);
+right.addEventListener("mouseup",releaseRight);
+
+document.addEventListener("keydown",e=>{
+
+  if(e.key==="ArrowLeft" || e.key==="a"){
+    leftPressed=true;
+  }
+
+  if(e.key==="ArrowRight" || e.key==="d"){
+    rightPressed=true;
+  }
+});
+
+document.addEventListener("keyup",e=>{
+
+  if(e.key==="ArrowLeft" || e.key==="a"){
+    leftPressed=false;
+  }
+
+  if(e.key==="ArrowRight" || e.key==="d"){
+    rightPressed=false;
+  }
+});
+
+function loop(){
+  update();
+  requestAnimationFrame(loop);
+}
+
+draw();
+loop();
+
+</script>
+
+</body>
+</html>
